@@ -1,0 +1,152 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: > 
+  CloudFormation template to deploy an image processing application 
+  using AWS Lambda, S3, and SNS.
+
+Parameters:
+  InputBucketName:
+    Type: String
+    Default: <your-input-bucket-name>
+
+  OutputBucketName:
+    Type: String
+    Default: <your-output-bucket-name>
+
+  CodeForLambdaBucketName:
+    Type: String
+    Default: <your-bucket-name-for-lambda-code>
+
+  PillowARNLayer:
+    Type: String
+    Default: arn:aws:lambda:us-east-1:770693421928:layer:Klayers-p312-Pillow:3
+
+  EmailSubscription:
+    Type: String
+    Default: <your-email>
+
+Resources:
+  ImageProcessingLambdaRole:
+      Type: AWS::IAM::Role
+      Properties: 
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: lambda.amazonaws.com
+              Action: sts:AssumeRole
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        Path: /
+        Policies:
+          - PolicyName: ImageProcessingPolicy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - s3:GetObject
+                    - s3:PutObject
+                  Resource: 
+                    - !Sub arn:aws:s3:::${InputBucketName}/*
+                    - !Sub arn:aws:s3:::${OutputBucketName}/*
+                - Effect: Allow
+                  Action:
+                    - sns:Publish
+                  Resource: 
+                    - !Ref SNSTopic
+
+  ImageProcessingLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ImageProcessingFunction
+      Handler: image_processing_lambda.lambda_handler
+      Role: !GetAtt ImageProcessingLambdaRole.Arn
+      Code:
+        S3Bucket: !Sub ${CodeForLambdaBucketName}
+        S3Key: image_processing_lambda.zip
+      Runtime: python3.12
+      Environment:
+        Variables:
+          OUTPUT_BUCKET: !Ref OutputBucket
+          SNS_TOPIC_ARN: !Ref SNSTopic
+      Layers:
+        - !Sub ${PillowARNLayer}
+      MemorySize: 512
+      Timeout: 120
+
+  S3Trigger:
+      Type: AWS::Lambda::Permission
+      Properties:
+        FunctionName: !Ref ImageProcessingLambda
+        Action: lambda:InvokeFunction
+        Principal: s3.amazonaws.com
+        SourceArn: !GetAtt InputBucket.Arn
+
+  InputBucket:
+    Type: AWS::S3::Bucket
+    DependsOn: ImageProcessingLambda
+    Properties:
+      BucketName: !Sub ${InputBucketName}
+
+  OutputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${OutputBucketName}
+
+  SNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: ImageFilterExecution
+  
+  SNSTopicSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      TopicArn: !Ref SNSTopic
+      Endpoint: !Sub ${EmailSubscription}
+
+  ApplyNotificationFunctionRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: lambda.amazonaws.com
+              Action: sts:AssumeRole
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        Path: /
+        Policies:
+          - PolicyName: S3BucketNotificationPolicy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Sid: AllowBucketNotification
+                  Effect: Allow
+                  Action: s3:PutBucketNotification
+                  Resource:
+                    - !Sub 'arn:aws:s3:::${InputBucketName}'
+                    - !Sub 'arn:aws:s3:::${InputBucketName}/*'
+
+  ApplyBucketNotificationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Dummy function, just logs the received event
+      Handler: bucket_notification_function.handler
+      Runtime: python3.8
+      Role: !GetAtt 'ApplyNotificationFunctionRole.Arn'
+      Timeout: 240
+      Code: 
+        S3Bucket: !Sub ${CodeForLambdaBucketName}
+        S3Key: bucket_notification_function.zip
+
+  ApplyNotification:
+    Type: Custom::ApplyNotification
+    Properties:
+      ServiceToken: !GetAtt 'ApplyBucketNotificationFunction.Arn'
+      S3Bucket: !Ref 'InputBucket'
+      FunctionARN: !GetAtt 'ImageProcessingLambda.Arn'
+      NotificationId: S3ObjectCreatedEvent
