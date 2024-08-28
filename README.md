@@ -37,11 +37,11 @@ Replace the placeholders in the `image-processing-cloudformation.yaml` template 
 - `<your-bucket-name-for-lambda-code>`: The name of the S3 bucket where you uploaded the Lambda function `.zip` files.
 - `<your-email>`: Your email address to receive SNS notifications.
 
-Note: The Pillow layer ARN used in this project is tied to a specific version of Python (e.g., Python 3.12). If you change the Python version in the Lambda function, make sure to update the Pillow layer ARN to a compatible version. Here you can find more Pillow layers: https://github.com/keithrozario/Klayers
+Note: The Pillow layer ARN used in this project is tied to a specific version of Python (e.g., Python 3.12). If you change the Python version in the Lambda function, make sure to update the Pillow layer ARN to a compatible version. More Pillow layers can be found here: https://github.com/keithrozario/Klayers
 
 ### 3. Deploy the CloudFormation Stack
 
-Use the AWS CLI or the AWS Management Console to deploy the stack:
+Use the AWS CLI or the AWS Management Console to deploy the stack.
 
 ### 4. Confirm SNS Subscription
 
